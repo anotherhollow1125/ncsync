@@ -1,0 +1,8 @@
+*.txt
+.env
+setting.toml
+*.md
+!todo_ncsync.md
+target/
+*.toml
+!Cargo.toml

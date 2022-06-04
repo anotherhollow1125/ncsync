@@ -1,0 +1,39 @@
+[package]
+name = "ncsync_lib"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = { version = "0.11.10", features = ["json"] }
+tokio = { version = "1.18.1", features = ["full"] }
+once_cell = "1.11.0"
+regex = "1.5.6"
+serde = { version = "1.0.137", features = ["derive"] }
+serde_json = "1.0.81"
+anyhow = "1.0.57"
+thiserror = "1.0.31"
+roxmltree = "0.14.1"
+urlencoding = "2.1.0"
+if_chain = "1.0.2"
+toml = "0.5.9"
+async-recursion = "1.0.0"
+log = "0.4.17"
+globset = "0.4.8"
+bytes = "1.1.0"
+chrono = "0.4.19"
+
+[dependencies.uuid]
+version = "1.1.0"
+features = [
+    "v4",
+    "fast-rng",
+]
+
+[dev-dependencies]
+dotenv = "0.15.0"
+env_logger = "0.9.0"
+
+[[example]]
+name = "login_test"
