@@ -1,66 +1,87 @@
-use crate::setting::{ExcludeList, LocalInfo, LoginStatus, NCInfo};
+use crate::setting::{ClientHub, ExcludeList, LocalInfo, LoginStatus};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::default::Default;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-// NCInfoはclient_idを持たなければならないのでLocalInfoRawにDefaultを持たせてはいけない
 #[derive(Debug, Serialize, Deserialize)]
-struct NCInfoRaw {
-    client_id: String,
+struct ProfileRaw {
+    name: String,
     login_status: LoginStatus,
 }
 
-impl NCInfoRaw {
-    fn from(nc_info: &NCInfo) -> NCInfoRaw {
-        NCInfoRaw {
-            client_id: nc_info.client_id.clone(),
-            login_status: nc_info.login_status.clone(),
+// ClientHubはclient_idを持たなければならないのでLocalInfoRawにDefaultを持たせてはいけない
+#[derive(Debug, Serialize, Deserialize)]
+struct ClientHubRaw {
+    client_id: String,
+    default_profile: Option<String>,
+    profiles: Vec<ProfileRaw>,
+}
+
+impl ClientHubRaw {
+    fn from(client_hub: &ClientHub) -> ClientHubRaw {
+        ClientHubRaw {
+            client_id: client_hub.client_id.clone(),
+            profiles: client_hub
+                .profiles
+                .iter()
+                .map(|p| ProfileRaw {
+                    name: p.0.clone(),
+                    login_status: p.1.login_status.clone(),
+                })
+                .collect(),
+            default_profile: client_hub.default_profile.clone(),
         }
     }
 
-    fn to(self) -> Result<NCInfo> {
-        NCInfo::load(self.login_status, &self.client_id)
+    fn to(self) -> Result<ClientHub> {
+        let mut hub = ClientHub::load_without_profiles(self.client_id)?;
+        for profile in self.profiles {
+            hub.add_profile(profile.name, profile.login_status)?;
+        }
+        hub.default_profile = self.default_profile;
+        Ok(hub)
     }
 }
 
-pub fn ncinfo_from_json(file_path: impl AsRef<Path>) -> Result<NCInfo> {
-    let file_path = file_path.as_ref();
-    let json_str = fs::read_to_string(file_path)?;
-    let nc_info: NCInfoRaw = serde_json::from_str(&json_str)?;
-    let nc_info = nc_info.to()?;
-    Ok(nc_info)
-}
-
-pub fn ncinfo_from_env() -> Result<NCInfo> {
+pub fn client_hub_from_env() -> Result<ClientHub> {
     let host = std::env::var("NC_HOST")?;
     let username = std::env::var("NC_USERNAME")?;
     let password = std::env::var("NC_PASSWORD")?;
-    let nc_info = NCInfo::new_with_auth(username, password, host)?;
-    Ok(nc_info)
+    let hub = ClientHub::new_with_auth(username, password, host)?;
+    Ok(hub)
 }
 
-pub fn ncinfo_from_toml(file_path: impl AsRef<Path>) -> Result<NCInfo> {
+pub fn client_hub_from_toml(file_path: impl AsRef<Path>) -> Result<ClientHub> {
     let file_path = file_path.as_ref();
     let toml_str = fs::read_to_string(file_path);
-    let nc_info = match toml_str {
+    let mut hub = match toml_str {
         Ok(s) => {
-            let raw: NCInfoRaw = toml::from_str(&s)?;
+            let raw: ClientHubRaw = toml::from_str(&s)?;
             raw.to()?
         }
         Err(e) => {
             log::info!("{}: {:?}", file_path.display(), e);
-            NCInfo::new()?
+            ClientHub::new()?
         }
     };
-    Ok(nc_info)
+
+    if_chain! {
+        if let Some(ref default_profile) = hub.default_profile;
+        if hub.get_profile(default_profile).is_none();
+        then {
+            hub.default_profile = None;
+        }
+    }
+
+    Ok(hub)
 }
 
-pub fn save_ncinfo_to_toml(nc_info: &NCInfo, file_path: impl AsRef<Path>) -> Result<()> {
+pub fn save_client_hub_to_toml(hub: &ClientHub, file_path: impl AsRef<Path>) -> Result<()> {
     let file_path = file_path.as_ref();
-    let nc_info = NCInfoRaw::from(nc_info);
-    let toml_str = toml::to_string(&nc_info)?;
+    let hub = ClientHubRaw::from(hub);
+    let toml_str = toml::to_string(&hub)?;
     fs::write(file_path, toml_str)?;
     Ok(())
 }
@@ -141,78 +162,14 @@ pub fn save_localinfo_to_toml(local_info: &LocalInfo, file_path: impl AsRef<Path
     Ok(())
 }
 
-/* 作った後に気づいたけどexcludesとパスワードが一緒に見えてしまうのは問題
-#[derive(Debug, Serialize, Deserialize)]
-pub struct Setting {
-    nextcloud: Option<NCInfoRaw>,
-    local: Option<LocalInfoRaw>,
-}
-
-pub fn setting_from_toml(file_path: impl AsRef<Path>) -> Result<(NCInfo, LocalInfo)> {
-    let file_path = file_path.as_ref();
-    let toml_str = fs::read_to_string(file_path).unwrap_or("".to_string());
-    let setting: Setting = toml::from_str(&toml_str)?;
-    let nextcloud = match setting.nextcloud {
-        Some(nc_info) => nc_info.to()?,
-        None => NCInfoRaw::default().to()?,
-    };
-
-    let local = match setting.local {
-        Some(local_info) => local_info.to()?,
-        None => LocalInfo::new(ExcludeList::default())?,
-    };
-
-    Ok((nextcloud, local))
-}
-
-pub fn save_setting_to_toml(
-    nc_info: Option<&NCInfo>,
-    local_info: Option<&LocalInfo>,
-    file_path: impl AsRef<Path>,
-) -> Result<()> {
-    let file_path = file_path.as_ref();
-    let setting = Setting {
-        nextcloud: match nc_info {
-            Some(nc_info) => Some(NCInfoRaw::from(nc_info)),
-            None => None,
-        },
-        local: match local_info {
-            Some(local_info) => Some(LocalInfoRaw::from(local_info)),
-            None => None,
-        },
-    };
-    let toml_str = toml::to_string(&setting)?;
-    fs::write(file_path, toml_str)?;
-    Ok(())
-}
-*/
-
-pub fn setting_from_toml<P, Q>(ncinfo_fp: P, localinfo_fp: Q) -> Result<(NCInfo, LocalInfo)>
+pub fn setting_from_toml<P, Q>(ncinfo_fp: P, localinfo_fp: Q) -> Result<(ClientHub, LocalInfo)>
 where
     P: AsRef<Path>,
     Q: AsRef<Path>,
 {
-    let nc_info = ncinfo_from_toml(ncinfo_fp)?;
+    let hub = client_hub_from_toml(ncinfo_fp)?;
     let local_info = localinfo_from_toml(localinfo_fp)?;
-    Ok((nc_info, local_info))
-}
-
-pub fn save_setting_to_toml(
-    nc_info: Option<&NCInfo>,
-    local_info: Option<&LocalInfo>,
-    file_path: impl AsRef<Path>,
-) -> Result<()> {
-    let file_path = file_path.as_ref();
-    match nc_info {
-        Some(nc_info) => save_ncinfo_to_toml(nc_info, file_path)?,
-        None => (),
-    }
-    match local_info {
-        Some(local_info) => save_localinfo_to_toml(local_info, file_path)?,
-        None => (),
-    }
-
-    Ok(())
+    Ok((hub, local_info))
 }
 
 use crate::setting::CurDirSetting;

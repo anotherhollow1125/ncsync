@@ -21,15 +21,15 @@ mod tests {
         dotenv::dotenv().ok();
         env_logger::init();
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let ncinfo_fp = format!("{}/ncinfo.toml", manifest_dir);
+        let clienthub_fp = format!("{}/profiles.toml", manifest_dir);
         let localinfo_fp = format!("{}/localinfo.toml", manifest_dir);
-        let (nc_info, local_info) =
-            readwrite::setting_from_toml(ncinfo_fp.as_str(), localinfo_fp.as_str()).unwrap();
+        let (client_hub, local_info) =
+            readwrite::setting_from_toml(clienthub_fp.as_str(), localinfo_fp.as_str()).unwrap();
 
-        println!("nc_info: {:?}", nc_info);
+        println!("client_hub: {:?}", client_hub);
         println!("local_info: {:?}", local_info);
 
-        let entry = ls(&nc_info, "/".as_ref()).await.unwrap();
+        let entry = ls("for_test", &client_hub, "/".as_ref()).await.unwrap();
 
         println!("{}", entry.get_tree(&local_info.get_exclude_list(), false));
     }

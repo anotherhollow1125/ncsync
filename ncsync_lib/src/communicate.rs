@@ -1,7 +1,7 @@
 use crate::entry::{Entry, EntryType, Etag};
 use crate::errors::NcsError::*;
 use crate::path::{check_absolute, url2path, AsNCUrl};
-use crate::setting::NCInfo;
+use crate::setting::{Client, ClientHub};
 use anyhow::{Context, Result};
 use async_recursion::async_recursion;
 use chrono::DateTime;
@@ -25,27 +25,20 @@ pub const WEBDAV_BODY: &str = r#"<?xml version="1.0"?>
 </d:propfind>
 "#;
 
-async fn reqest(nc_info: &NCInfo, target: &Path) -> Result<Vec<Entry>> {
+async fn reqest(client: &Client<'_>, target: &Path) -> Result<Vec<Entry>> {
     if !check_absolute(target) {
         return Err(BadPath.into());
     }
 
-    let url = target.as_nc_url(nc_info)?;
+    let url = target.as_nc_url(client)?;
 
     log::debug!("reqest: {}", url);
-
-    let ref client = nc_info.get_client();
-
-    let (username, password, root_prefix) = match nc_info.get_userinfo() {
-        Some(v) => v,
-        _ => return Err(NotLoggedIn.into()),
-    };
+    let root_prefix = client.get_root_prefix()?;
 
     let mut counter = 0;
     let res = loop {
         let res = client
-            .request(Method::from_bytes(b"PROPFIND").unwrap(), url.as_str())
-            .basic_auth(&username, Some(&password))
+            .get_request_builder(Method::from_bytes(b"PROPFIND").unwrap(), url.clone())?
             .header("Depth", "Infinity")
             .body(WEBDAV_BODY)
             .send()
@@ -73,9 +66,9 @@ async fn reqest(nc_info: &NCInfo, target: &Path) -> Result<Vec<Entry>> {
     Ok(response)
 }
 
-async fn get(nc_info: &NCInfo, target: &Path) -> Result<Entry> {
+async fn get(client: &Client<'_>, target: &Path) -> Result<Entry> {
     log::debug!("target: {:?}", target);
-    let response = reqest(nc_info, target).await?;
+    let response = reqest(client, target).await?;
     let entry = response
         .into_iter()
         .map(|e| {
@@ -89,15 +82,15 @@ async fn get(nc_info: &NCInfo, target: &Path) -> Result<Entry> {
     Ok(entry)
 }
 
-async fn get_children(nc_info: &NCInfo, target: &Path) -> Result<Vec<Entry>> {
-    let response = reqest(nc_info, target).await?;
+async fn get_children(client: &Client<'_>, target: &Path) -> Result<Vec<Entry>> {
+    let response = reqest(client, target).await?;
     let response = response.into_iter().filter(|e| e.path != target).collect();
 
     Ok(response)
 }
 
 #[async_recursion]
-async fn ls_rec(nc_info: &NCInfo, entry: &mut Entry) -> Result<()> {
+async fn ls_rec(client: &Client<'_>, entry: &mut Entry) -> Result<()> {
     let (path, children) = match entry {
         Entry {
             path,
@@ -107,10 +100,10 @@ async fn ls_rec(nc_info: &NCInfo, entry: &mut Entry) -> Result<()> {
         _ => return Ok(()),
     };
 
-    let entries = get_children(nc_info, path).await?;
+    let entries = get_children(client, path).await?;
 
     for mut entry in entries.into_iter() {
-        ls_rec(nc_info, &mut entry).await?;
+        ls_rec(client, &mut entry).await?;
         let p = entry.path.clone();
         children.insert(p, entry);
     }
@@ -122,7 +115,9 @@ async fn ls_rec(nc_info: &NCInfo, entry: &mut Entry) -> Result<()> {
 ls, pull, push系に渡すパスはすべて絶対パスで解決済みとしたい。
 */
 
-pub async fn ls(nc_info: &NCInfo, target: &str) -> Result<Entry> {
+pub async fn ls(profile_name: &str, client_hub: &ClientHub, target: &str) -> Result<Entry> {
+    let client = client_hub.get_client(profile_name)?;
+
     // check target is absolute path
     if !check_absolute(target) {
         return Err(BadPath.into());
@@ -130,8 +125,8 @@ pub async fn ls(nc_info: &NCInfo, target: &str) -> Result<Entry> {
 
     let path = Path::new(&target);
 
-    let mut entry = get(nc_info, path).await?;
-    ls_rec(nc_info, &mut entry).await?;
+    let mut entry = get(&client, path).await?;
+    ls_rec(&client, &mut entry).await?;
 
     Ok(entry)
 }

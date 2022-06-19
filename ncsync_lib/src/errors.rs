@@ -21,4 +21,8 @@ pub enum NcsError {
     NotAuthorized,
     #[error("Invalid Path.")]
     BadPath,
+    #[error("Profile not found {0}.")]
+    ProfileNotFound(String),
+    #[error("Invalid Profile. Please check profiles.toml")]
+    InvalidProfile,
 }

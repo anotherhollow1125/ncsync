@@ -1,4 +1,4 @@
-use crate::setting::NCInfo;
+use crate::setting::ClientHub;
 use anyhow::Result;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -18,9 +18,9 @@ pub struct ReqLoginResponseJson {
     pub login: String,
 }
 
-pub async fn login_request(nc_info: &NCInfo, host: &str) -> Result<ReqLoginResponseJson> {
+pub async fn login_request(client_hub: &ClientHub, host: &str) -> Result<ReqLoginResponseJson> {
     let host = Url::parse(host)?;
-    let client = nc_info.get_client();
+    let client = client_hub.get_reqclient();
     let url = host.join(LOGINREQUESTURL)?;
     let res = client.post(url).send().await?;
     let json: ReqLoginResponseJson = res.json().await?;
@@ -38,12 +38,12 @@ pub struct PollResponseJson {
 }
 
 pub async fn polling(
-    nc_info: &NCInfo,
+    client_hub: &ClientHub,
     token: &str,
     end_point: &str,
 ) -> Result<Option<PollResponseJson>> {
     let end_point = Url::parse(end_point)?;
-    let client = nc_info.get_client();
+    let client = client_hub.get_reqclient();
     let res = client
         .post(end_point)
         .form(&[("token", token)])
